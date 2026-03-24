@@ -1,0 +1,56 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: nimbusnet
+    environment: production
+
+rule_files:
+  - "rules/slo-burn-rate.yml"
+  - "rules/nimbusnet-alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+
+  # NimbusNet Go agent metrics (Phase 2+)
+  - job_name: nimbusnet-go-agent
+    static_configs:
+      - targets:
+          - "nimbusnet-agent-us-east-1:8080"
+          - "nimbusnet-agent-eu-west-1:8080"
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "nimbusnet-agent-(.+):.+"
+        target_label: region
+        replacement: "$1"
+
+  # ML runtime metrics (Phase 3+)
+  - job_name: nimbusnet-ml-runtime
+    static_configs:
+      - targets:
+          - "nimbusnet-ml-us-east-1:8081"
+          - "nimbusnet-ml-eu-west-1:8081"
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "nimbusnet-ml-(.+):.+"
+        target_label: region
+        replacement: "$1"
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Alertmanager
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  # Grafana
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]

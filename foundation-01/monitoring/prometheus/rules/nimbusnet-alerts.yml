@@ -1,0 +1,132 @@
+groups:
+  - name: nimbusnet.infrastructure
+    rules:
+
+      # Split-brain detection — zero tolerance, immediate P0
+      - alert: NimbusNetSplitBrain
+        expr: nimbusnet_split_brain_active > 0
+        for: 0m
+        labels:
+          severity: P0
+          team: nimbusnet-sre
+          channel: pagerduty
+          immediate: "true"
+        annotations:
+          summary: "SPLIT-BRAIN DETECTED on {{ $labels.region }}"
+          description: |
+            Two regions are simultaneously authoritative for the same flows.
+            This is a zero-tolerance SLO breach. Immediate SRE response required.
+          runbook_url: "https://github.com/yourorg/nimbusnet/blob/main/docs/runbooks/RB-005.md"
+
+      # Both active regions in HEALING state simultaneously
+      - alert: NimbusNetDualRegionDegraded
+        expr: |
+          count(nimbusnet_region_state{state="HEALING", role="active"}) >= 2
+        for: 30s
+        labels:
+          severity: P0
+          team: nimbusnet-sre
+          channel: pagerduty
+        annotations:
+          summary: "Both active regions are in HEALING state"
+          description: |
+            US-East and EU-West are simultaneously in the HEALING state.
+            Cold standby provisioning should be triggering automatically.
+            SRE should verify standby provisioning is underway.
+          runbook_url: "https://github.com/yourorg/nimbusnet/blob/main/docs/runbooks/RB-003.md"
+
+      # Healing latency SLO breach
+      - alert: NimbusNetHealingLatencyBreach
+        expr: |
+          histogram_quantile(0.99, rate(nimbusnet_healing_duration_seconds_bucket[10m])) > 2
+        for: 5m
+        labels:
+          severity: P1
+          team: nimbusnet-sre
+          channel: slack
+        annotations:
+          summary: "Healing latency p99 > 2s on {{ $labels.region }}"
+          description: |
+            Healing latency p99: {{ $value | humanizeDuration }}
+            SLO target: 2 seconds.
+            This may indicate AWS API throttling or state machine regression.
+
+      # Go agent state machine stuck in DEGRADED
+      - alert: NimbusNetRegionStuckDegraded
+        expr: |
+          nimbusnet_region_state{state="DEGRADED"} and
+          (time() - nimbusnet_state_entered_at{state="DEGRADED"}) > 120
+        for: 2m
+        labels:
+          severity: P1
+          team: nimbusnet-sre
+          channel: slack
+        annotations:
+          summary: "Region {{ $labels.region }} stuck in DEGRADED for > 2 minutes"
+          description: |
+            Region has been in DEGRADED state for {{ $value | humanizeDuration }}.
+            Expected either recovery or transition to HEALING within 15s.
+            Check Go agent logs and LSTM forecaster output.
+
+      # ML model inference latency degradation
+      - alert: NimbusNetMLInferenceLatency
+        expr: |
+          histogram_quantile(0.99, rate(nimbusnet_ml_inference_duration_ms_bucket[5m])) > 100
+        for: 5m
+        labels:
+          severity: P2
+          team: nimbusnet-sre
+          channel: slack-ml-health
+        annotations:
+          summary: "ML inference latency p99 > 100ms on {{ $labels.region }}"
+          description: |
+            Model: {{ $labels.model }}
+            Inference latency p99: {{ $value }}ms
+            This may indicate model drift or ONNX runtime resource contention.
+
+      # Anomaly score distribution drift
+      - alert: NimbusNetMLScoreDrift
+        expr: |
+          abs(
+            avg_over_time(nimbusnet_anomaly_score[1h]) -
+            avg_over_time(nimbusnet_anomaly_score[7d])
+          ) > 0.15
+        for: 30m
+        labels:
+          severity: P2
+          team: nimbusnet-sre
+          channel: slack-ml-health
+        annotations:
+          summary: "Anomaly score distribution drifting on {{ $labels.region }}"
+          description: |
+            The 1-hour mean anomaly score has drifted significantly from the 7-day baseline.
+            Model may require retraining. Current drift: {{ $value | humanize }}
+
+      # Route 53 health check failure
+      - alert: NimbusNetHealthCheckFailing
+        expr: aws_route53_health_check_status == 0
+        for: 1m
+        labels:
+          severity: P1
+          team: nimbusnet-sre
+          channel: slack
+        annotations:
+          summary: "Route 53 health check failing for {{ $labels.region }}"
+          description: |
+            Route 53 health check has been failing for > 1 minute.
+            DNS failover may have triggered. Verify Go agent /healthz state.
+
+      # Runbook TTL exceeded
+      - alert: NimbusNetRunbookTTLExceeded
+        expr: nimbusnet_runbook_tll_exceeded_total > 0
+        for: 0m
+        labels:
+          severity: P1
+          team: nimbusnet-sre
+          channel: pagerduty
+        annotations:
+          summary: "Runbook {{ $labels.runbook_id }} TTL exceeded on {{ $labels.region }}"
+          description: |
+            Automated runbook failed to resolve the incident within its TTL.
+            SRE engagement required. Incident context available in Grafana.
+          runbook_url: "https://github.com/yourorg/nimbusnet/blob/main/docs/runbooks/{{ $labels.runbook_id }}.md"

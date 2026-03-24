@@ -1,0 +1,172 @@
+{
+  "title": "NimbusNet — SLO burn rate",
+  "uid": "nimbusnet-slo",
+  "tags": ["nimbusnet", "slo"],
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Fast burn rate (1h / 5m windows)",
+      "type": "gauge",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "orange", "value": 6 },
+              { "color": "red", "value": 14.4 }
+            ]
+          },
+          "min": 0,
+          "max": 20,
+          "unit": "short",
+          "displayName": "Burn rate (1h)"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "max(nimbusnet:burn_rate:1h)",
+          "legendFormat": "1h window"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Slow burn rate (6h / 30m windows)",
+      "type": "gauge",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 6 }
+            ]
+          },
+          "min": 0,
+          "max": 10,
+          "unit": "short",
+          "displayName": "Burn rate (6h)"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "max(nimbusnet:burn_rate:6h)",
+          "legendFormat": "6h window"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error budget remaining (28d)",
+      "type": "gauge",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.1 },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "green", "value": 0.5 }
+            ]
+          },
+          "min": 0,
+          "max": 1,
+          "unit": "percentunit",
+          "displayName": "Budget remaining"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "min(nimbusnet:error_budget_remaining)",
+          "legendFormat": "Budget"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Burn rate history — all windows",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "14.4x threshold" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+                           { "id": "custom.lineStyle", "value": { "dash": [8, 4], "fill": "dash" } }]
+          },
+          { "matcher": { "id": "byName", "options": "6x threshold" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } },
+                           { "id": "custom.lineStyle", "value": { "dash": [8, 4], "fill": "dash" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "nimbusnet:burn_rate:1h",
+          "legendFormat": "1h window"
+        },
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "nimbusnet:burn_rate:6h",
+          "legendFormat": "6h window"
+        },
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "nimbusnet:burn_rate:3d",
+          "legendFormat": "3d window"
+        },
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "vector(14.4)",
+          "legendFormat": "14.4x threshold"
+        },
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "vector(6)",
+          "legendFormat": "6x threshold"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Deploy freeze status",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 14, "w": 6, "h": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DEPLOYS ALLOWED", "color": "green" } } },
+            { "type": "value", "options": { "1": { "text": "DEPLOY FREEZE", "color": "red" } } }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus" },
+          "expr": "min(nimbusnet:error_budget_remaining) < 0.10"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Active alerts",
+      "type": "alertlist",
+      "gridPos": { "x": 6, "y": 14, "w": 18, "h": 4 },
+      "options": {
+        "alertInstanceLabelFilter": "{job=~\"nimbusnet.*\"}",
+        "sortOrder": 1,
+        "stateFilter": { "firing": true, "pending": true }
+      }
+    }
+  ]
+}

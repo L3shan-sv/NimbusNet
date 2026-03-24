@@ -1,0 +1,139 @@
+groups:
+  - name: nimbusnet.slo.burn_rate
+    interval: 1m
+    rules:
+
+      # ── Recording rules ───────────────────────────────────────────
+      # Error ratio over various windows
+      - record: nimbusnet:error_ratio:rate5m
+        expr: |
+          rate(nimbusnet_requests_total{status="error"}[5m])
+            /
+          rate(nimbusnet_requests_total[5m])
+
+      - record: nimbusnet:error_ratio:rate30m
+        expr: |
+          rate(nimbusnet_requests_total{status="error"}[30m])
+            /
+          rate(nimbusnet_requests_total[30m])
+
+      - record: nimbusnet:error_ratio:rate1h
+        expr: |
+          rate(nimbusnet_requests_total{status="error"}[1h])
+            /
+          rate(nimbusnet_requests_total[1h])
+
+      - record: nimbusnet:error_ratio:rate6h
+        expr: |
+          rate(nimbusnet_requests_total{status="error"}[6h])
+            /
+          rate(nimbusnet_requests_total[6h])
+
+      - record: nimbusnet:error_ratio:rate3d
+        expr: |
+          rate(nimbusnet_requests_total{status="error"}[3d])
+            /
+          rate(nimbusnet_requests_total[3d])
+
+      # Burn rate = error_ratio / error_budget
+      # SLO = 99.95% → error_budget = 0.0005
+      - record: nimbusnet:burn_rate:1h
+        expr: nimbusnet:error_ratio:rate1h / 0.0005
+
+      - record: nimbusnet:burn_rate:5m
+        expr: nimbusnet:error_ratio:rate5m / 0.0005
+
+      - record: nimbusnet:burn_rate:6h
+        expr: nimbusnet:error_ratio:rate6h / 0.0005
+
+      - record: nimbusnet:burn_rate:30m
+        expr: nimbusnet:error_ratio:rate30m / 0.0005
+
+      - record: nimbusnet:burn_rate:3d
+        expr: nimbusnet:error_ratio:rate3d / 0.0005
+
+      - record: nimbusnet:burn_rate:6h_window
+        expr: nimbusnet:error_ratio:rate6h / 0.0005
+
+      # Error budget remaining (28-day window)
+      - record: nimbusnet:error_budget_remaining
+        expr: |
+          1 - (
+            increase(nimbusnet_requests_total{status="error"}[28d])
+              /
+            increase(nimbusnet_requests_total[28d])
+          ) / 0.0005
+
+      # ── Alert rules ───────────────────────────────────────────────
+
+      # Fast burn — PAGE NOW (budget exhausted in < 2 hours)
+      # Both 1h and 5m windows must be above 14.4x
+      - alert: NimbusNetFastBurn
+        expr: |
+          nimbusnet:burn_rate:1h > 14.4
+            AND
+          nimbusnet:burn_rate:5m > 14.4
+        for: 2m
+        labels:
+          severity: P0
+          team: nimbusnet-sre
+          channel: pagerduty
+        annotations:
+          summary: "Fast error budget burn on {{ $labels.region }}"
+          description: |
+            Error budget burning at {{ $value | humanize }}x the allowed rate.
+            At this rate, the 28-day budget will be exhausted in under 2 hours.
+            Burn rate (1h): {{ $labels.nimbusnet__burn_rate__1h }}x
+            Burn rate (5m): {{ $labels.nimbusnet__burn_rate__5m }}x
+          runbook_url: "https://github.com/yourorg/nimbusnet/blob/main/docs/runbooks/RB-004.md"
+
+      # Slow burn — TICKET (budget exhausted in < 5 hours)
+      # Both 6h and 30m windows must be above 6x
+      - alert: NimbusNetSlowBurn
+        expr: |
+          nimbusnet:burn_rate:6h > 6
+            AND
+          nimbusnet:burn_rate:30m > 6
+        for: 15m
+        labels:
+          severity: P1
+          team: nimbusnet-sre
+          channel: slack
+        annotations:
+          summary: "Slow error budget burn on {{ $labels.region }}"
+          description: |
+            Error budget burning at {{ $value | humanize }}x the allowed rate.
+            At this rate, the 28-day budget will be exhausted in under 5 hours.
+          runbook_url: "https://github.com/yourorg/nimbusnet/blob/main/docs/runbooks/RB-004.md"
+
+      # Silent leak — LOG (budget draining slowly)
+      # Both 3d and 6h windows above 1x
+      - alert: NimbusNetSilentBudgetLeak
+        expr: |
+          nimbusnet:burn_rate:3d > 1
+            AND
+          nimbusnet:burn_rate:6h_window > 1
+        for: 1h
+        labels:
+          severity: P2
+          team: nimbusnet-sre
+          channel: slack
+        annotations:
+          summary: "Silent error budget leak on {{ $labels.region }}"
+          description: |
+            Error budget consuming faster than replenishment rate.
+            No immediate action required but investigate before next sprint.
+
+      # Deploy freeze trigger
+      - alert: NimbusNetDeployFreeze
+        expr: nimbusnet:error_budget_remaining < 0.10
+        for: 5m
+        labels:
+          severity: P1
+          team: nimbusnet-sre
+          channel: slack
+        annotations:
+          summary: "Deploy freeze — error budget below 10% on {{ $labels.region }}"
+          description: |
+            Error budget remaining: {{ $value | humanizePercentage }}
+            All deploys are frozen until budget recovers above 10%.

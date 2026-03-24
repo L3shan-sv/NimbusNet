@@ -1,0 +1,72 @@
+# NimbusNet Agent Configuration
+# Phase 2 — eBPF/XDP Detection Layer
+#
+# This file is deployed via SSM Parameter Store in production.
+# Values here are the development defaults.
+
+# AWS region this agent runs in
+region: us-east-1
+
+# Unique identifier for this node in the consistent hash ring.
+# Format: {region}-{az}-{instance_id}
+# Injected at launch time by the EC2 user-data script.
+node_id: us-east-1-az1-i-placeholder
+
+# Network interface to attach XDP program to.
+# Use 'eth0' for EC2, 'ens5' for Nitro instances.
+interface: eth0
+
+# ── BPF Programs ──────────────────────────────────────────────────────────────
+bpf:
+  xdp_object_path: /opt/nimbusnet/bpf/xdp_probe.o
+  tcp_object_path: /opt/nimbusnet/bpf/tcp_probe.o
+
+  # Number of pages in the perf event ring buffer per CPU.
+  # Each page is 4096 bytes. 64 pages = 256KB per CPU.
+  # Increase if you see drop warnings under high traffic.
+  perf_page_count: 64
+
+  # How often (ms) to drain the perf buffer.
+  # Lower = less latency, higher CPU. 50ms is the sweet spot.
+  drain_interval_ms: 50
+
+# ── Event Bus ─────────────────────────────────────────────────────────────────
+bus:
+  # Channel depth for raw flow events (XDP → aggregator)
+  flow_buffer_size: 8192
+
+  # Channel depth for TCP lifecycle events (kprobe → aggregator)
+  tcp_buffer_size: 4096
+
+# ── Aggregation ───────────────────────────────────────────────────────────────
+aggregator:
+  # Window size for metric aggregation.
+  # Must match the drain_interval_ms for clean alignment.
+  window_ms: 50
+
+  # Maximum number of flows to track simultaneously.
+  # LRU eviction kicks in above this threshold.
+  max_flows: 65536
+
+# ── Consistent Hash Ring ──────────────────────────────────────────────────────
+ring:
+  # Number of virtual nodes per peer. 150 is the Dynamo recommendation.
+  # Higher = better distribution, more memory.
+  virtual_nodes: 150
+
+  # Peer agent addresses. Populated at runtime from Service Discovery.
+  # Format: host:port or node_id (resolved via DNS SRV records)
+  peers: []
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+metrics:
+  listen_addr: "0.0.0.0:9090"
+
+# ── Health Check ──────────────────────────────────────────────────────────────
+healthz:
+  listen_addr: "0.0.0.0:8080"
+
+  # How long to stay in drain mode before allowing process exit.
+  # Must be > Route53 health check interval (30s) + DNS TTL (30s).
+  # 35000ms gives a 5s safety margin.
+  drain_delay_ms: 35000

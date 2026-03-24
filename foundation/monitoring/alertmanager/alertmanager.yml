@@ -1,0 +1,131 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: "${SLACK_WEBHOOK_URL}"
+  pagerduty_url: "https://events.pagerduty.com/v2/enqueue"
+
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+route:
+  group_by: [alertname, region, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: slack-ops
+
+  routes:
+    # Split-brain: immediate P0, no grouping wait
+    - match:
+        alertname: NimbusNetSplitBrain
+      receiver: pagerduty-p0
+      group_wait: 0s
+      repeat_interval: 30m
+      continue: false
+
+    # Dual-region degraded: immediate P0
+    - match:
+        alertname: NimbusNetDualRegionDegraded
+      receiver: pagerduty-p0
+      group_wait: 0s
+      repeat_interval: 15m
+      continue: true
+
+    # Runbook TTL breach: P1 page
+    - match:
+        alertname: NimbusNetRunbookTTLExceeded
+      receiver: pagerduty-p1
+      group_wait: 10s
+      continue: true
+
+    # Fast burn rate: P0 page
+    - match:
+        alertname: NimbusNetFastBurn
+      receiver: pagerduty-p0
+      group_wait: 2m
+      repeat_interval: 1h
+      continue: true
+
+    # P0 severity catch-all
+    - match:
+        severity: P0
+      receiver: pagerduty-p0
+      group_wait: 0s
+      continue: true
+
+    # P1 severity
+    - match:
+        severity: P1
+      receiver: pagerduty-p1
+      group_wait: 30s
+      continue: true
+
+    # ML health alerts go to dedicated channel
+    - match:
+        channel: slack-ml-health
+      receiver: slack-ml-health
+      continue: false
+
+    # Deploy freeze to budget channel
+    - match:
+        alertname: NimbusNetDeployFreeze
+      receiver: slack-budget-alert
+      continue: false
+
+receivers:
+
+  - name: slack-ops
+    slack_configs:
+      - channel: "#nimbusnet-ops"
+        send_resolved: true
+        title: |
+          {{ if eq .Status "firing" }}[{{ .Labels.severity }}] {{ .CommonLabels.alertname }}{{ else }}[RESOLVED] {{ .CommonLabels.alertname }}{{ end }}
+        text: |
+          {{ range .Alerts }}
+          *Region:* {{ .Labels.region | default "global" }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ if .Annotations.runbook_url }}*Runbook:* <{{ .Annotations.runbook_url }}|View runbook>{{ end }}
+          {{ end }}
+
+  - name: slack-ml-health
+    slack_configs:
+      - channel: "#nimbusnet-ml-health"
+        send_resolved: true
+        title: "[ML] {{ .CommonLabels.alertname }}"
+        text: |
+          {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+
+  - name: slack-budget-alert
+    slack_configs:
+      - channel: "#nimbusnet-budget-alert"
+        send_resolved: true
+        title: "[BUDGET] Deploy freeze triggered"
+        text: |
+          {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+
+  - name: pagerduty-p0
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_P0_ROUTING_KEY}"
+        severity: critical
+        description: "{{ .CommonAnnotations.summary }}"
+        details:
+          region: "{{ .CommonLabels.region }}"
+          runbook: "{{ .CommonAnnotations.runbook_url }}"
+          firing_count: "{{ len .Alerts.Firing }}"
+
+  - name: pagerduty-p1
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_P1_ROUTING_KEY}"
+        severity: error
+        description: "{{ .CommonAnnotations.summary }}"
+        details:
+          region: "{{ .CommonLabels.region }}"
+          runbook: "{{ .CommonAnnotations.runbook_url }}"
+
+inhibit_rules:
+  # If P0 is firing for a region, suppress P1/P2 for the same region
+  - source_match:
+      severity: P0
+    target_match_re:
+      severity: P1|P2
+    equal: [region]

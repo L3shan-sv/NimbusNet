@@ -1,0 +1,309 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
+  ],
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "title": "SLO & Error Budget",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 60},
+            {"color": "red", "value": 80}
+          ]},
+          "unit": "percent",
+          "max": 100, "min": 0
+        }
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 1},
+      "id": 2,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "showThresholdLabels": false, "showThresholdMarkers": true},
+      "title": "Error Budget Consumed (30d)",
+      "type": "gauge",
+      "targets": [{"expr": "nimbusnet_error_budget_consumed_pct", "legendFormat": "consumed"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "none",
+          "custom": {"lineWidth": 2}
+        }
+      },
+      "gridPos": {"h": 6, "w": 18, "x": 6, "y": 1},
+      "id": 3,
+      "title": "SLO Burn Rate — Multi-Window (1h / 6h / 72h)",
+      "type": "timeseries",
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "nimbusnet_slo_burn_rate_1h",  "legendFormat": "1h burn rate"},
+        {"expr": "nimbusnet_slo_burn_rate_6h",  "legendFormat": "6h burn rate"},
+        {"expr": "nimbusnet_slo_burn_rate_72h", "legendFormat": "72h burn rate"},
+        {"expr": "14.4", "legendFormat": "Fast-burn threshold (14.4x)"},
+        {"expr": "6",    "legendFormat": "Slow-burn threshold (6x)"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 7},
+      "id": 10,
+      "title": "eBPF Detection Layer (Phase 2)",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "pps", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 8},
+      "id": 11,
+      "title": "XDP Packets/s by Action",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(nimbusnet_xdp_packets_total{action='PASS'}[1m])",  "legendFormat": "PASS"},
+        {"expr": "rate(nimbusnet_xdp_packets_total{action='DROP'}[1m])",  "legendFormat": "DROP"},
+        {"expr": "rate(nimbusnet_xdp_packets_total{action='ABORTED'}[1m])","legendFormat": "ABORTED"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "none", "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "red", "value": 80}]}}},
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 8},
+      "id": 12,
+      "title": "Anomaly Score Distribution (P95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, rate(nimbusnet_anomaly_score_bucket[5m]))", "legendFormat": "P95 anomaly score"},
+        {"expr": "histogram_quantile(0.99, rate(nimbusnet_anomaly_score_bucket[5m]))", "legendFormat": "P99 anomaly score"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 8},
+      "id": 13,
+      "title": "Flow RTT (P50 / P95 / P99)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(nimbusnet_flow_rtt_ms_bucket[5m]))", "legendFormat": "P50"},
+        {"expr": "histogram_quantile(0.95, rate(nimbusnet_flow_rtt_ms_bucket[5m]))", "legendFormat": "P95"},
+        {"expr": "histogram_quantile(0.99, rate(nimbusnet_flow_rtt_ms_bucket[5m]))", "legendFormat": "P99"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "id": 20,
+      "title": "ML Intelligence Layer (Phase 3)",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 15},
+      "id": 21,
+      "title": "ML Score Decisions/s by Severity",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(nimbusnet_ml_score_total{severity='NOMINAL'}[1m])",  "legendFormat": "NOMINAL"},
+        {"expr": "rate(nimbusnet_ml_score_total{severity='WARNING'}[1m])",  "legendFormat": "WARNING"},
+        {"expr": "rate(nimbusnet_ml_score_total{severity='DEGRADED'}[1m])", "legendFormat": "DEGRADED"},
+        {"expr": "rate(nimbusnet_ml_score_total{severity='CRITICAL'}[1m])", "legendFormat": "CRITICAL"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 15},
+      "id": 22,
+      "title": "ML Inference Latency (P99)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.99, rate(nimbusnet_ml_inference_ms_bucket[5m]))", "legendFormat": "P99 inference latency"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 15},
+      "id": 23,
+      "title": "Flywheel Records Ingested (cumulative)",
+      "type": "stat",
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [
+        {"expr": "nimbusnet_chaos_flywheel_records_total{source='chaos_qdisc'}", "legendFormat": "Chaos"},
+        {"expr": "nimbusnet_chaos_flywheel_records_total{source='production'}",  "legendFormat": "Production"},
+        {"expr": "nimbusnet_chaos_flywheel_records_total{source='gameday'}",     "legendFormat": "GameDay"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 21},
+      "id": 30,
+      "title": "Control Plane & Traffic Shaper (Phase 4)",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "blue"}}},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 22},
+      "id": 31,
+      "title": "FSM State",
+      "type": "stat",
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "targets": [{"expr": "nimbusnet_fsm_state", "legendFormat": "{{region}} {{state}}"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 6, "w": 9, "x": 6, "y": 22},
+      "id": 32,
+      "title": "Traffic Weights by Region",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "nimbusnet_traffic_weight{region='us-east-1'}", "legendFormat": "us-east-1"},
+        {"expr": "nimbusnet_traffic_weight{region='eu-west-1'}", "legendFormat": "eu-west-1"},
+        {"expr": "nimbusnet_traffic_weight{region='cold-standby'}", "legendFormat": "cold-standby"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 6, "w": 9, "x": 15, "y": 22},
+      "id": 33,
+      "title": "FSM Transitions/s",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(nimbusnet_fsm_transitions_total[5m])", "legendFormat": "{{from}} → {{to}}"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 28},
+      "id": 40,
+      "title": "SRE Operations & Incidents (Phase 5)",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}},
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 29},
+      "id": 41,
+      "title": "Incidents by Severity",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(nimbusnet_incidents_total{severity='P0'}[1h])", "legendFormat": "P0"},
+        {"expr": "rate(nimbusnet_incidents_total{severity='P1'}[1h])", "legendFormat": "P1"},
+        {"expr": "rate(nimbusnet_incidents_total{severity='P2'}[1h])", "legendFormat": "P2"},
+        {"expr": "rate(nimbusnet_incidents_total{severity='P3'}[1h])", "legendFormat": "P3"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}},
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 29},
+      "id": 42,
+      "title": "Runbook Auto-Heal Rate",
+      "type": "gauge",
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [
+        {"expr": "nimbusnet_runbook_heal_rate * 100", "legendFormat": "Auto-heal rate"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 29},
+      "id": 43,
+      "title": "Healing Latency (P50 / P99)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(nimbusnet_healing_latency_ms_bucket[5m]))", "legendFormat": "P50"},
+        {"expr": "histogram_quantile(0.99, rate(nimbusnet_healing_latency_ms_bucket[5m]))", "legendFormat": "P99"},
+        {"expr": "30000", "legendFormat": "SLO ceiling (30s)"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 35},
+      "id": 50,
+      "title": "Chaos CI Gate (Phase 6)",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "none", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 36},
+      "id": 51,
+      "title": "Last Chaos Gate",
+      "type": "stat",
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none"},
+      "targets": [{"expr": "nimbusnet_chaos_gate_passed{suite='ci'}", "legendFormat": "CI Gate"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}},
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 36},
+      "id": 52,
+      "title": "Chaos Heal Rate",
+      "type": "gauge",
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "nimbusnet_chaos_heal_rate{suite='ci'} * 100", "legendFormat": "Heal rate"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 36},
+      "id": 53,
+      "title": "Chaos Healing Latency Trend",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "nimbusnet_chaos_healing_latency_ms{quantile='0.5'}",  "legendFormat": "P50"},
+        {"expr": "nimbusnet_chaos_healing_latency_ms{quantile='0.99'}", "legendFormat": "P99"},
+        {"expr": "30000", "legendFormat": "Gate threshold"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 200}]}}},
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 36},
+      "id": 54,
+      "title": "Healing Latency Regression vs Baseline",
+      "type": "stat",
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "max(nimbusnet_chaos_regression_ms)", "legendFormat": "Max regression"}]
+    }
+
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["nimbusnet", "sre", "chaos"],
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "NimbusNet — Full System",
+  "uid": "nimbusnet-main",
+  "version": 1
+}

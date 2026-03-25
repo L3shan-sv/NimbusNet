@@ -1,0 +1,30 @@
+# NimbusNet SRE Operations Service Configuration
+# Phase 5
+
+host: "0.0.0.0"
+port: 8002
+
+# Service URLs
+phase4_url: "http://nimbusnet-controlplane:9091"
+ml_url:     "http://nimbusnet-ml-scoring:8001"
+
+# Data persistence
+data_dir: "/opt/nimbusnet/sre-data"
+
+# Set true to log notifications without actually sending them
+dry_run: false
+
+# Notification channels configured via environment variables:
+#   SLACK_WEBHOOK_URL         — Slack incoming webhook
+#   PAGERDUTY_ROUTING_KEY     — PagerDuty Events API v2 routing key
+
+# Notification matrix (informational — enforced in code):
+#   Auto-resolved any severity → Slack FYI only
+#   P2/P3 escalated            → Slack #nimbusnet-alerts
+#   P0/P1 escalated            → Slack #nimbusnet-alerts + PagerDuty
+#   TTL breach                 → PagerDuty (mandatory)
+
+# SLO targets
+slo:
+  availability_target: 0.999   # 99.9%
+  monthly_budget_minutes: 43.8 # 43.8 minutes/month at 99.9%

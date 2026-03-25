@@ -1,0 +1,7 @@
+scikit-learn>=1.4.0
+numpy>=1.26.0
+xgboost>=2.0.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.6.0
+prometheus-client>=0.20.0

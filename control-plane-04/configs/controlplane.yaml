@@ -1,0 +1,82 @@
+# NimbusNet Control Plane Configuration
+# Phase 4 — Healing State Machine + Adaptive Traffic Shaper + Route53 + VPC Route Table
+
+# AWS region this control plane instance runs in
+region: us-east-1
+
+# All regions in the NimbusNet deployment
+regions:
+  - us-east-1
+  - us-west-2
+  - eu-west-1
+
+# Prometheus metrics server
+metrics_addr: "0.0.0.0:9091"
+
+# ── Route 53 ──────────────────────────────────────────────────────────────────
+route53:
+  hosted_zone_id: "Z1234567890PLACEHOLDER"
+  record_name: "api.nimbusnet.internal"
+  record_ttl_seconds: 30
+
+  # Health check IDs for each region (created by Terraform in Phase 1)
+  health_check_ids:
+    us-east-1: "hc-placeholder-use1"
+    us-west-2: "hc-placeholder-usw2"
+    eu-west-1: "hc-placeholder-euw1"
+
+# ── DynamoDB ──────────────────────────────────────────────────────────────────
+dynamodb:
+  # Table for distributed lock (prevents competing failovers from multiple agents)
+  lock_table_name: "nimbusnet-control-plane-locks"
+  # How long a lock is held before auto-expiry (prevents deadlock)
+  lock_ttl_seconds: 60
+
+# ── VPC Route Table ───────────────────────────────────────────────────────────
+route_table:
+  regions:
+    us-east-1:
+      tgw_attachment_id: "tgw-attach-placeholder-use1"
+      target_cidrs:
+        - "10.1.0.0/16"
+      subnet_ids:
+        - "subnet-placeholder-use1-a"
+        - "subnet-placeholder-use1-b"
+      route_table_ids:
+        - "rtb-placeholder-use1"
+
+    us-west-2:
+      tgw_attachment_id: "tgw-attach-placeholder-usw2"
+      target_cidrs:
+        - "10.2.0.0/16"
+      subnet_ids:
+        - "subnet-placeholder-usw2-a"
+        - "subnet-placeholder-usw2-b"
+      route_table_ids:
+        - "rtb-placeholder-usw2"
+
+    eu-west-1:
+      tgw_attachment_id: "tgw-attach-placeholder-euw1"
+      target_cidrs:
+        - "10.3.0.0/16"
+      subnet_ids:
+        - "subnet-placeholder-euw1-a"
+        - "subnet-placeholder-euw1-b"
+      route_table_ids:
+        - "rtb-placeholder-euw1"
+
+# ── Control Plane Behaviour ───────────────────────────────────────────────────
+control_plane:
+  # Minimum ML confidence to act on a failover signal
+  # Below this: increase monitoring, don't change routing
+  min_failover_confidence: 0.65
+
+  # Consecutive CRITICAL signals before hard failover
+  # Anti-flapping: prevents reacting to transient spikes
+  critical_signals_threshold: 3
+
+  # How often to check FSM TTLs (state timeouts)
+  fsm_tick_interval_ms: 10000  # 10s
+
+  # How often to publish SLO burn rate metrics
+  slo_report_interval_s: 60

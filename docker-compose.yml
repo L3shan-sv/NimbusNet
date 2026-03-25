@@ -1,0 +1,306 @@
+version: "3.9"
+
+# NimbusNet — Full System docker-compose
+# Wires all 7 phases together for local development and integration testing.
+# Production uses Terraform (Phase 1) on AWS. This is the local integration harness.
+
+networks:
+  nimbusnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+  flywheel_data:
+  chaos_results:
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ──────────────────────────────────────────────────────────────
+  # OBSERVABILITY STACK (Phase 1)
+  # ──────────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: nimbusnet-prometheus
+    networks: [nimbusnet]
+    ports: ["9090:9090"]
+    volumes:
+      - prometheus_data:/prometheus
+      - ./phase-01-foundation/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./phase-01-foundation/monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: nimbusnet-grafana
+    networks: [nimbusnet]
+    ports: ["3000:3000"]
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./phase-01-foundation/monitoring/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./phase-07-integration/grafana/provisioning/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./phase-07-integration/grafana/dashboards:/etc/grafana/provisioning/dashboards/nimbusnet:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-nimbusnet}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "http://localhost:3000"
+      GF_FEATURE_TOGGLES_ENABLE: "publicDashboards"
+    depends_on: [prometheus]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  loki:
+    image: grafana/loki:2.9.6
+    container_name: nimbusnet-loki
+    networks: [nimbusnet]
+    ports: ["3100:3100"]
+    volumes:
+      - loki_data:/loki
+      - ./phase-01-foundation/monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+    command: -config.file=/etc/loki/loki.yml
+    logging: *default-logging
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: nimbusnet-tempo
+    networks: [nimbusnet]
+    ports: ["3200:3200", "4317:4317"]
+    volumes:
+      - tempo_data:/tmp/tempo
+      - ./phase-01-foundation/monitoring/tempo/tempo.yml:/etc/tempo.yml:ro
+    command: -config.file=/etc/tempo.yml
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: nimbusnet-alertmanager
+    networks: [nimbusnet]
+    ports: ["9093:9093"]
+    volumes:
+      - ./phase-01-foundation/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-http://localhost:9999/hook}
+      PAGERDUTY_SERVICE_KEY: ${PAGERDUTY_SERVICE_KEY:-dev-key}
+    logging: *default-logging
+
+  # ──────────────────────────────────────────────────────────────
+  # PHASE 2 — eBPF Detection Agent (simulated in Docker)
+  # Production: runs as a DaemonSet / systemd unit on each EC2 instance
+  # ──────────────────────────────────────────────────────────────
+
+  ebpf-agent:
+    build:
+      context: ./phase-02-ebpf-detection
+      dockerfile: Dockerfile
+    container_name: nimbusnet-ebpf-agent
+    networks: [nimbusnet]
+    ports:
+      - "9100:9100"   # Prometheus metrics
+      - "9101:9101"   # /healthz
+    volumes:
+      - ./phase-02-ebpf-detection/config/agent.yaml:/etc/nimbusnet/agent.yaml:ro
+    environment:
+      NIMBUSNET_REGION: us-east-1
+      NIMBUSNET_ENV: integration
+      ML_SERVING_URL: http://ml-serving:8080
+      DRAIN_MODE: "false"
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN         # required for eBPF program loading
+    network_mode: host    # eBPF probes need host network visibility
+    privileged: true      # XDP requires kernel access
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9101/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    profiles: ["full"]    # only starts with --profile full (requires privileged)
+
+  # ──────────────────────────────────────────────────────────────
+  # PHASE 3 — ML Intelligence Layer
+  # ──────────────────────────────────────────────────────────────
+
+  ml-serving:
+    build:
+      context: ./phase-03-ml-intelligence
+      dockerfile: Dockerfile
+    container_name: nimbusnet-ml-serving
+    networks: [nimbusnet]
+    ports: ["8080:8080"]
+    volumes:
+      - flywheel_data:/tmp/nimbusnet/flywheel
+    environment:
+      NIMBUSNET_ENV: integration
+      FLYWHEEL_DIR: /tmp/nimbusnet/flywheel
+      RETRAIN_THRESHOLD: "50"
+      LOG_LEVEL: INFO
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/models/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s   # model bootstrap takes time
+
+  # ──────────────────────────────────────────────────────────────
+  # PHASE 4 — Control Plane
+  # ──────────────────────────────────────────────────────────────
+
+  control-plane:
+    build:
+      context: ./phase-04-control-plane
+      dockerfile: Dockerfile
+    container_name: nimbusnet-control-plane
+    networks: [nimbusnet]
+    ports: ["8070:8070"]
+    environment:
+      NIMBUSNET_REGION: us-east-1
+      ML_SERVING_URL: http://ml-serving:8080
+      PROMETHEUS_URL: http://prometheus:9090
+      AWS_REGION: us-east-1
+      # Route 53 and EC2 calls use AWS SDK — need credentials for real AWS operations
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dev}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dev}
+      DRY_RUN: ${CONTROL_PLANE_DRY_RUN:-true}   # dry-run by default in local dev
+    depends_on:
+      ml-serving:
+        condition: service_healthy
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8070/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ──────────────────────────────────────────────────────────────
+  # PHASE 5 — SRE Operations Layer
+  # ──────────────────────────────────────────────────────────────
+
+  sre-ops:
+    build:
+      context: ./phase-05-sre-operations
+      dockerfile: Dockerfile
+    container_name: nimbusnet-sre-ops
+    networks: [nimbusnet]
+    ports: ["8090:8090"]
+    volumes:
+      - /tmp/nimbusnet/sre:/tmp/nimbusnet/sre
+    environment:
+      NIMBUSNET_ENV: integration
+      ML_SERVING_URL: http://ml-serving:8080
+      CONTROL_PLANE_URL: http://control-plane:8070
+      PROMETHEUS_URL: http://prometheus:9090
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      PAGERDUTY_SERVICE_KEY: ${PAGERDUTY_SERVICE_KEY:-}
+    depends_on:
+      ml-serving:
+        condition: service_healthy
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ──────────────────────────────────────────────────────────────
+  # PHASE 6 — Chaos Flywheel Bridge (persistent background service)
+  # The CI runner itself is a GitHub Actions job, not a service here
+  # ──────────────────────────────────────────────────────────────
+
+  flywheel-bridge:
+    build:
+      context: ./phase-06-chaos-ci-gate
+      dockerfile: Dockerfile
+    container_name: nimbusnet-flywheel-bridge
+    networks: [nimbusnet]
+    volumes:
+      - flywheel_data:/tmp/nimbusnet/flywheel
+      - chaos_results:/tmp/nimbusnet/chaos
+    environment:
+      ML_SERVING_URL: http://ml-serving:8080
+      FLYWHEEL_DIR: /tmp/nimbusnet/flywheel/chaos
+      POLL_INTERVAL_S: "10"
+    depends_on:
+      ml-serving:
+        condition: service_healthy
+    logging: *default-logging
+    command: ["python", "-m", "flywheel.bridge_daemon"]
+
+  # ──────────────────────────────────────────────────────────────
+  # PHASE 7 — Integration: contract validator (runs once at start)
+  # ──────────────────────────────────────────────────────────────
+
+  contract-validator:
+    build:
+      context: ./phase-07-integration
+      dockerfile: Dockerfile
+    container_name: nimbusnet-contracts
+    networks: [nimbusnet]
+    environment:
+      EBPF_AGENT_URL: http://ebpf-agent:9100
+      ML_SERVING_URL: http://ml-serving:8080
+      CONTROL_PLANE_URL: http://control-plane:8070
+      SRE_OPS_URL: http://sre-ops:8090
+      PROMETHEUS_URL: http://prometheus:9090
+      GRAFANA_URL: http://grafana:3000
+      ALERTMANAGER_URL: http://alertmanager:9093
+    depends_on:
+      prometheus: {condition: service_healthy}
+      grafana:    {condition: service_healthy}
+      ml-serving: {condition: service_healthy}
+    command: ["python", "-m", "hardening.contract_validator"]
+    restart: "no"   # one-shot — fails fast if contracts broken
+
+  # E2E test runner (run with: docker-compose run e2e-tests)
+  e2e-tests:
+    build:
+      context: ./phase-07-integration
+      dockerfile: Dockerfile
+    container_name: nimbusnet-e2e
+    networks: [nimbusnet]
+    environment:
+      EBPF_AGENT_URL: http://ebpf-agent:9101
+      ML_SERVING_URL: http://ml-serving:8080
+      CONTROL_PLANE_URL: http://control-plane:8070
+      SRE_OPS_URL: http://sre-ops:8090
+      PROMETHEUS_URL: http://prometheus:9090
+      GRAFANA_URL: http://grafana:3000
+      ALERTMANAGER_URL: http://alertmanager:9093
+    depends_on:
+      prometheus: {condition: service_healthy}
+      grafana:    {condition: service_healthy}
+      ml-serving: {condition: service_healthy}
+      sre-ops:    {condition: service_healthy}
+    command: ["python", "-m", "e2e.test_suite"]
+    volumes:
+      - /tmp/nimbusnet/e2e:/tmp/nimbusnet/e2e
+    profiles: ["test"]
+    restart: "no"

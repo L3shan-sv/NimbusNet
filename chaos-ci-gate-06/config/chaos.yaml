@@ -1,0 +1,45 @@
+# NimbusNet Phase 6 — Chaos CI Gate Configuration
+
+chaos:
+  interface: eth0          # overridden to veth0 in CI via env var
+  dry_run: false
+
+  # CI gate thresholds
+  gates:
+    healing_latency_p99_ms: 30000       # 30s — regression blocks merge
+    healing_latency_regression_ms: 200  # 200ms worse than baseline = regression
+    min_heal_rate: 0.95                 # 95% of sessions must auto-resolve
+    max_error_budget_consumed_pct: 80.0 # freeze deploys above 80%
+
+  # How long to wait between scenarios (seconds)
+  scenario_cooldown_s: 10
+
+  # Baseline persistence
+  baseline:
+    path: /tmp/nimbusnet/chaos/baseline.json
+    update_on_main_branch: true
+
+flywheel:
+  watch_dir: /tmp/nimbusnet/flywheel/chaos
+  ml_serving_url: http://localhost:8080
+  poll_interval_s: 10.0
+  processed_log: /tmp/nimbusnet/flywheel/processed.jsonl
+
+  # S3 sync for GameDay records
+  s3_bucket: nimbusnet-flywheel
+  s3_prefix: chaos/
+
+gameday:
+  results_dir: /tmp/nimbusnet/chaos/gameday
+  # Slack webhook for GameDay notifications (set via env SLACK_WEBHOOK_URL)
+  notify_sre: true
+  observation_window_s: 30    # pause between scenarios for SRE observation
+
+budget:
+  state_file: /tmp/nimbusnet/sre/error_budget.json
+  prometheus_url: http://localhost:9090
+  slo_name: nimbusnet_availability
+  thresholds:
+    warn_pct: 60.0
+    freeze_pct: 80.0
+    critical_pct: 95.0

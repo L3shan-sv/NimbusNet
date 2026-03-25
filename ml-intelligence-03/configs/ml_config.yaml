@@ -1,0 +1,73 @@
+# NimbusNet ML Intelligence Layer Configuration
+# Phase 3
+
+# ── Serving ───────────────────────────────────────────────────────────────────
+serving:
+  host: "0.0.0.0"
+  port: 8001
+  # Admin token for protected endpoints (/models/retrain)
+  # Set via ML_ADMIN_TOKEN environment variable in production
+  admin_token: ""
+
+# ── Model Storage ─────────────────────────────────────────────────────────────
+models:
+  dir: "/opt/nimbusnet/models"
+
+  isolation_forest:
+    filename: "isolation_forest.pkl"
+    n_estimators: 200
+    max_samples: 512
+    contamination: 0.05           # prior anomaly rate — 5%
+    anomaly_threshold: 0.70       # probability above which we flag
+
+  lstm:
+    filename: "lstm.pkl"
+    seq_len: 20                   # 20 × 50ms = 1 second of history
+    hidden_size: 64
+    confidence_min: 0.60          # minimum confidence to act on prediction
+
+  xgboost:
+    filename: "xgboost.pkl"
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.05
+
+  bandit:
+    filename: "bandit.pkl"
+    minimum_weight: 0.05          # minimum routing weight (exploration floor)
+    exploration_decay: 0.999
+
+# ── Flywheel ──────────────────────────────────────────────────────────────────
+flywheel:
+  data_dir: "/opt/nimbusnet/data"
+
+  # Trigger retrain after this many new labeled samples
+  retrain_volume_threshold: 500
+
+  # Minimum samples needed before any retrain is attempted
+  min_samples_for_retrain: 100
+
+  # Held-out test set fraction
+  validation_split: 0.15
+
+  # Scheduled retrain interval (seconds)
+  scheduled_retrain_interval_s: 86400   # 24 hours
+
+# ── Ensemble Decision Thresholds ──────────────────────────────────────────────
+ensemble:
+  # Isolation Forest alone triggers failover above this probability
+  if_failover_threshold: 0.70
+
+  # XGBoost + LSTM joint decision thresholds
+  xgb_min_severity: 2              # FaultSeverity.DEGRADED
+  lstm_confidence_min: 0.60
+
+  # Bandit + IF joint decision thresholds
+  bandit_low_weight: 0.20          # bandit weight below this is suspicious
+  if_corroborate_threshold: 0.50   # IF must also flag for bandit to trigger failover
+
+# ── Regions ───────────────────────────────────────────────────────────────────
+regions:
+  - us-east-1
+  - us-west-2
+  - eu-west-1
